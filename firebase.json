@@ -1,0 +1,6 @@
+{
+  "apphosting": {
+    "source": ".",
+    "yaml": "apphosting.yaml"
+  }
+}

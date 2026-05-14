@@ -1,0 +1,23 @@
+# Settings for App Hosting
+# Docs: https://firebase.google.com/docs/app-hosting/configure
+# Reference: https://firebase.google.com/docs/reference/app-hosting/yaml
+
+# Specifies the Next.js framework.
+framework: nextjs
+
+# Controls the minimum and maximum number of instances.
+runConfig:
+  minInstances: 0 # Default is 0, scale to zero
+  # maxInstances: 100 # Default is 100, uncomment to set a specific limit
+
+# Specifies environment variables.
+# env:
+#   - variable: MY_VARIABLE
+#     value: "my_value"
+#     availability:
+#       - BUILD
+#       - RUNTIME
+#   - variable: MY_SECRET
+#     secret: projects/YOUR_PROJECT_ID/secrets/YOUR_SECRET_NAME # Requires Secret Manager
+#     availability:
+#       - RUNTIME
