@@ -44,7 +44,7 @@ export interface TechProficiency {
 export interface FramerLayer {
     id: string;
     name: string;
-    type: 'text' | 'frame' | 'image' | 'video' | 'icon' | 'link' | 'input' | 'button' | 'bg-image' | 'element';
+    type: 'text' | 'frame' | 'image' | 'video' | 'icon' | 'link' | 'input' | 'button' | 'bg-image' | 'element' | 'gallery';
     tag: string;
     children: FramerLayer[];
     // Optional metadata
