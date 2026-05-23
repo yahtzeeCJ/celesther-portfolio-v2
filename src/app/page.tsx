@@ -10,6 +10,13 @@ export default function Home() {
   const { isAdmin, siteContent, updateSiteContent, selectedLayerId, setSelectedLayerId } = useAdmin();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // ===== CRITICAL FIX: Keep a ref to always have the latest siteContent =====
+  // This prevents the postMessage listener from capturing stale state.
+  const siteContentRef = useRef(siteContent);
+  useEffect(() => {
+    siteContentRef.current = siteContent;
+  }, [siteContent]);
+
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(msg, '*');
@@ -26,13 +33,27 @@ export default function Home() {
     postToIframe({ type: 'SELECT_LAYER', id: selectedLayerId });
   }, [selectedLayerId, postToIframe]);
 
+  // ===== CRITICAL FIX: Stable refs for callbacks used in the message listener =====
+  const updateSiteContentRef = useRef(updateSiteContent);
+  useEffect(() => { updateSiteContentRef.current = updateSiteContent; }, [updateSiteContent]);
+  const setSelectedLayerIdRef = useRef(setSelectedLayerId);
+  useEffect(() => { setSelectedLayerIdRef.current = setSelectedLayerId; }, [setSelectedLayerId]);
+  const isAdminRef = useRef(isAdmin);
+  useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
+
   // Listen for messages from iframe
+  // ===== CRITICAL FIX: This effect no longer depends on siteContent =====
+  // Previously, having siteContent in the dependency array caused the listener
+  // to constantly re-register, and the TEXT_UPDATED handler read stale state
+  // from its closure. Now it reads from refs, so the listener is stable and
+  // always operates on the latest data.
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const data = event.data;
       if (!data || !data.type) return;
 
       if (data.type === 'IFRAME_READY') {
+        const current = siteContentRef.current;
         const allCss = [
           ...TEXT_ANIMATIONS.map(a => a.css),
           ...BG_ANIMATIONS.filter(a => a.css).map(a => a.css!)
@@ -40,23 +61,27 @@ export default function Home() {
 
         postToIframe({
           type: 'INITIAL_STATE',
-          textEdits: siteContent.framerTextEdits || {},
-          edits: siteContent.framerEdits || {},
-          textStyles: siteContent.framerTextStyles || {},
-          sectionBackgrounds: siteContent.framerSectionBackgrounds || {},
-          sectionGradients: siteContent.framerSectionGradients || {},
-          theme: siteContent.framerTheme || {},
-          hiddenSections: siteContent.framerHiddenSections || [],
-          customSections: siteContent.framerCustomSections || [],
+          textEdits: current.framerTextEdits || {},
+          edits: current.framerEdits || {},
+          textStyles: current.framerTextStyles || {},
+          sectionBackgrounds: current.framerSectionBackgrounds || {},
+          sectionGradients: current.framerSectionGradients || {},
+          theme: current.framerTheme || {},
+          hiddenSections: current.framerHiddenSections || [],
+          customSections: current.framerCustomSections || [],
           animationCSS: allCss,
         });
-        postToIframe({ type: 'ADMIN_MODE_TOGGLE', enabled: isAdmin });
+        postToIframe({ type: 'ADMIN_MODE_TOGGLE', enabled: isAdminRef.current });
       } else if (data.type === 'TEXT_UPDATED') {
-        const newEdits = { ...(siteContent.framerTextEdits || {}) };
-        newEdits[data.id] = data.content;
-        updateSiteContent('framerTextEdits', newEdits);
+        // ===== CRITICAL FIX: Use functional updater via setSiteContent =====
+        // Instead of spreading from a potentially stale siteContent closure,
+        // we use the functional form to always merge against the LATEST state.
+        const updateFn = updateSiteContentRef.current;
+        const latest = siteContentRef.current;
+        const newEdits = { ...(latest.framerTextEdits || {}), [data.id]: data.content };
+        updateFn('framerTextEdits', newEdits);
       } else if (data.type === 'LAYER_CLICKED') {
-        setSelectedLayerId(data.id);
+        setSelectedLayerIdRef.current(data.id);
       } else if (data.type === 'ADD_SECTION_REQUEST') {
         window.dispatchEvent(new CustomEvent('admin:addSectionRequest', { detail: data }));
       } else if (data.type === 'TOOLBAR_ACTION') {
@@ -68,7 +93,7 @@ export default function Home() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isAdmin, siteContent, updateSiteContent, postToIframe, setSelectedLayerId]);
+  }, [postToIframe]); // Only depends on postToIframe (stable via useCallback)
 
   const LEFT_W = 280;
   const RIGHT_W = 320;

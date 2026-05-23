@@ -37,6 +37,10 @@ import { getSiteContent } from '@/app/actions'; // Import action
 
 // ... metadata ...
 
+// Force this layout to always be dynamically rendered — never serve stale cached HTML
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export default async function RootLayout({
   children,
 }: Readonly<{

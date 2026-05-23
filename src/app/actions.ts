@@ -231,18 +231,23 @@ export async function renameInR2(oldUrl: string, newName: string): Promise<Renam
   }
 }
 
+import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
+
 export async function saveSiteContent(content: SiteContent): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log('[saveSiteContent] Saving content to R2. framerTextEdits keys:', Object.keys(content.framerTextEdits || {}));
     const s3 = getS3Client();
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: CONTENT_FILE_NAME,
       Body: JSON.stringify(content, null, 2),
       ContentType: 'application/json',
-      CacheControl: 'no-cache',
+      CacheControl: 'no-cache, no-store, must-revalidate',
     });
 
     await s3.send(command);
+    revalidatePath('/', 'layout'); // Revalidate the entire site cache so updates are immediate
+    console.log('[saveSiteContent] Save successful, cache revalidated.');
     return { success: true };
   } catch (error) {
     console.error("Failed to save site content to R2:", error);
@@ -251,6 +256,7 @@ export async function saveSiteContent(content: SiteContent): Promise<{ success: 
 }
 
 export async function getSiteContent(): Promise<SiteContent> {
+  noStore(); // Ensure this function is never cached by Next.js
   try {
     const s3 = getS3Client();
     const command = new GetObjectCommand({

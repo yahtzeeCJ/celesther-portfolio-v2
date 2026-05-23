@@ -2,7 +2,7 @@
 "use client";
 
 import type { ReactNode } from 'react';
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 import { SiteContent, DEFAULT_CONTENT, Project, SkillCategory, TechProficiency, SectionId, CustomTextBlock, CustomShape, SectionDesign } from '@/types/content';
@@ -68,30 +68,41 @@ export function AdminProvider({ children, initialContent }: { children: ReactNod
   const [futureState, setFutureState] = useState<SiteContent[]>([]);
   const { toast } = useToast();
 
-  const commitHistory = () => {
+  // ===== CRITICAL FIX: Ref that always holds the latest siteContent =====
+  // React state closures can be stale. This ref is ALWAYS current.
+  const siteContentRef = useRef<SiteContent>(siteContent);
+  useEffect(() => {
+    siteContentRef.current = siteContent;
+  }, [siteContent]);
+
+  const commitHistory = useCallback(() => {
     setPastState(prev => {
-      const newPast = [...prev, siteContent];
+      const newPast = [...prev, siteContentRef.current];
       if (newPast.length > 50) newPast.shift();
       return newPast;
     });
     setFutureState([]);
-  };
+  }, []);
 
-  const undo = () => {
-    if (pastState.length === 0) return;
-    const previousState = pastState[pastState.length - 1];
-    setFutureState(prev => [siteContent, ...prev]);
-    setPastState(prev => prev.slice(0, -1));
-    setSiteContent(previousState);
-  };
+  const undo = useCallback(() => {
+    setPastState(prev => {
+      if (prev.length === 0) return prev;
+      const previousState = prev[prev.length - 1];
+      setFutureState(fut => [siteContentRef.current, ...fut]);
+      setSiteContent(previousState);
+      return prev.slice(0, -1);
+    });
+  }, []);
 
-  const redo = () => {
-    if (futureState.length === 0) return;
-    const nextState = futureState[0];
-    setPastState(prev => [...prev, siteContent]);
-    setFutureState(prev => prev.slice(1));
-    setSiteContent(nextState);
-  };
+  const redo = useCallback(() => {
+    setFutureState(prev => {
+      if (prev.length === 0) return prev;
+      const nextState = prev[0];
+      setPastState(past => [...past, siteContentRef.current]);
+      setSiteContent(nextState);
+      return prev.slice(1);
+    });
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -113,7 +124,18 @@ export function AdminProvider({ children, initialContent }: { children: ReactNod
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isAdmin, siteContent, pastState, futureState]);
+  }, [isAdmin, undo, redo]);
+
+  useEffect(() => {
+    // Auto-save to local storage whenever siteContent changes and we are an admin
+    if (isAdmin && hasMounted) {
+      try {
+        localStorage.setItem('celestherAdminContent_v6_dynamic', JSON.stringify(siteContent));
+      } catch (error) {
+        console.error("Failed to auto-save to local storage", error);
+      }
+    }
+  }, [siteContent, isAdmin, hasMounted]);
 
   useEffect(() => {
     // This effect runs only on the client
@@ -138,10 +160,10 @@ export function AdminProvider({ children, initialContent }: { children: ReactNod
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
   };
 
-  const updateSiteContent = (key: keyof SiteContent, value: SiteContent[keyof SiteContent]) => {
+  const updateSiteContent = useCallback((key: keyof SiteContent, value: SiteContent[keyof SiteContent]) => {
     commitHistory();
     setSiteContent(prevContent => ({ ...prevContent, [key]: value }));
-  };
+  }, [commitHistory]);
 
   const updateProjectMediaUrls = (projectKey: string, newUrls: string[]) => {
     setSiteContent(prevContent => ({
@@ -153,22 +175,26 @@ export function AdminProvider({ children, initialContent }: { children: ReactNod
     }));
   };
 
-  const saveChanges = async () => {
-    if (isAdmin) {
-      try {
-        toast({ title: "Saving...", description: "Updating site content to the cloud." });
-        const result = await saveSiteContent(siteContent);
-        if (result.success) {
-          toast({ title: "Changes Saved", description: "All updates saved to cloud storage." });
-        } else {
-          toast({ variant: "destructive", title: "Save Error", description: result.error || "Could not save changes." });
-        }
-      } catch (error) {
-        console.error("Failed to save site content to Cloud", error);
-        toast({ variant: "destructive", title: "Save Error", description: "Could not save changes." });
+  // ===== CRITICAL FIX: saveChanges reads from ref, not stale closure =====
+  const saveChanges = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      // Read the LATEST state from ref, not from the potentially stale closure
+      const latestContent = siteContentRef.current;
+      console.log('[AdminContext] saveChanges called. framerTextEdits keys:', Object.keys(latestContent.framerTextEdits || {}));
+      toast({ title: "Saving...", description: "Updating site content to the cloud." });
+      const result = await saveSiteContent(latestContent);
+      if (result.success) {
+        toast({ title: "Changes Saved ✅", description: "All updates saved to cloud storage." });
+      } else {
+        console.error('[AdminContext] Save failed:', result.error);
+        toast({ variant: "destructive", title: "Save Error", description: result.error || "Could not save changes." });
       }
+    } catch (error) {
+      console.error("[AdminContext] Failed to save site content to Cloud", error);
+      toast({ variant: "destructive", title: "Save Error", description: "Could not save changes." });
     }
-  };
+  }, [isAdmin, toast]);
 
   const recoverFromLocalStorage = () => {
     const storedContent = localStorage.getItem('celestherAdminContent_v6_dynamic');
